@@ -60,10 +60,11 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
                 retain: true,
             },
             username: this.config.mqtt_user,
-            password: this.config.mqtt_pass,
+            password: this.config.mqtt_pass ?? process.env.HA_MQTT_PASS,
         })
         this.client.on('connect', this.connected.bind(this))
         this.client.on('close', this.disconnected.bind(this))
+        this.client.on('error', this.connectionError.bind(this))
         this.client.on('message', this.received.bind(this))
     }
 
@@ -90,6 +91,10 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
         this.isConnected = false
         log('status', 'HA mqtt connection lost')
         this.emit('statusChanged', false)
+    }
+
+    connectionError(error) {
+        console.error("HA mqtt connection error", error)
     }
 
     received(topic: string, message: Buffer, packet: mqtt.IPublishPacket) {
