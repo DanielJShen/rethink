@@ -93,7 +93,7 @@ export class Connection extends TypedEmitter<ConnectionEvents> {
         this.emit('statusChanged', false)
     }
 
-    connectionError(error) {
+    connectionError(error: any) {
         console.error("HA mqtt connection error", error)
     }
 
