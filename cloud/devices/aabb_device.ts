@@ -45,8 +45,14 @@ export default class AABBDevice extends T2Device {
     }
 
     static unframe(buf: Buffer | undefined) {
+        // 0        AA
+        // 1        Message size
+        // 2        Command code
+        // 3+       Payload
+        // last - 1 Checksum
+        // last     BB
         if (buf && buf.length >= 4 && buf[0] == 0xaa && buf[buf.length - 1] == 0xbb) {
-            return buf.subarray(2, buf.length - 2)
+            return buf.subarray(2, buf.length - 2) // Return command code and payload
         }
     }
 

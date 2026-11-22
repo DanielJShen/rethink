@@ -1,0 +1,372 @@
+import { describe, test } from 'node:test'
+import assert from 'node:assert/strict'
+import DUT from '@/cloud/devices/G4V7_Y___W.B_2QEUK'
+import AABBDevice from '@/cloud/devices/aabb_device'
+import type { Metadata } from '@/cloud/thinq'
+import { MockHAConnection, MockThinq2Device, buf, captureLog } from '@/tests/helpers/mocks'
+
+const DEVICE_ID = 'test-id'
+const MODEL_ID = 'G4V7_Y___W.B_2QEUK'
+const META: Metadata = { modelId: MODEL_ID, modelName: 'G4V7_Y___W.B_2QEUK', swVersion: '2.11.306' }
+
+// Real frames from an LG , November 2026: the panel passes (one setting at a
+// time, from Ready) and real washes. A single 0xeb record answers the status request; every later change comes
+// as a pushed 0xec pair, the record being replaced followed by its replacement.
+
+// Cotton at its defaults: 40 C, 1400 rpm. The door is open (and the drum lit).
+const READY_COTTON = buf(
+    'AAFF200A0098002393000100EC00860003030E09130000000000000000DC00DC00000013010090000002022A0400002D1E0000004000001000000000000004000000000000000000000000000000180000000003030E092E0000000000000000EF00EF0000002E010090000004022A0403002D1E000000400000100000000000000400000000000000000000000000000018000000BFEFBB',
+)
+
+// The dial moved on to X course: 40 C, 1400 rpm.
+const READY_COTTON_DOOR_SHUT = buf(
+    'AAFF200A009800233F000100EC0086000000000000000000000000000000000000000000010090000000002A0402022D1E0000004100211000000000000004000000000000000000000000000000180000000003030E092E0000000000000000EF00EF0000002E010090000004022A0403002D1E0000004100001000000000000004000000000000000000000000000000180000002B5EBB',
+)
+const DIAL_TO_AI_WASH = buf(
+    'AAFF200A0098002635000100EC00860003030E087A00000000000000002700270000007A010090090001012A0400002D1E2000000100001000000000000004000000000000000000000000000000180000000003030E0972000000000000000040004000000072010090000004022A0401002D1E000000010000110000000000000400000000000000000000000000000018000000F66CBB',
+)
+const DIAL_TO_ECO = buf(
+    'AAFF200A00980025E6000100EC00860003030E092E0000000000000000EF00EF0000002E010090000004022A0403002D1E0000004100001000000000000004000000000000000000000000000000180000000003030E09130000000000000000DC00DC00000013010090000002022A0400002D1E0000004100001000000000000004000000000000000000000000000000180000004656BB',
+)
+const DIAL_TO_MIXED_FABRIC = buf(
+    'AAFF200A00980025EE000100EC00860003030E09130000000000000000DC00DC00000013010090000002022A0400002D1E0000004100001000000000000004000000000000000000000000000000180000000003030E062B00000000000000005600560000002B010090000003022A0400002D1E00000041000010000000000000040000000000000000000000000000001800000082DABB',
+)
+const DIAL_TO_QUICK = buf(
+    'AAFF200A0098002626000100EC00860003050E09040000000000000000B100B100000004010090000005042A0400002D1E0010000100001000000000000004000000000000000000000000000000180000000003010E014B00000000000000000E000E0000004B010090090001012A0400002D1E200000010000100000000000000400000000000000000000000000000018000000A826BB',
+)
+const DIAL_TO_EASY_CARE = buf(
+    'AAFF200A00980025F4000100EC00860003030E062B00000000000000005600560000002B010090000003022A0400002D1E0000004100001000000000000004000000000000000000000000000000180000000003030E091D00000000000000009900990000001D010090000003022A0400002D1E0000004100001000000000000004000000000000000000000000000000180000005865BB',
+)
+const DIAL_TO_HAND_WOOL = buf(
+    'AAFF200A00980025FC000100EC00860003030E091D00000000000000009900990000001D010090000003022A0400002D1E0000004100001000000000000004000000000000000000000000000000180000000003020E045E00000000000000002500250000005E010090090003022A0400002D1E000000410000100000000000000400000000000000000000000000000018000000A096BB',
+)
+const DIAL_TO_MICROPLASTIC_CARE = buf(
+    'AAFF200A009800261B000100EC00860003000E09FF0000000000000000130013000000FF010090090001012A0400022D1E0000000100011000000000000004000000000000000000000000000000180000000003030E0688000000000000000071007100000088010090000003022A0402022D1E0000000100011000000000000004000000000000000000000000000000180000007301BB',
+)
+const DIAL_TO_ACTIVEWEAR = buf(
+    'AAFF200A0098002602000100EC00860003020E045E00000000000000002500250000005E010090090003022A0400002D1E0000004100001000000000000004000000000000000000000000000000180000000003030E044F00000000000000003900390000004F010090090002022A0400002D1E000000410000100000000000000400000000000000000000000000000018000000DCDEBB',
+)
+const DIAL_TO_ALLERGY_CARE = buf(
+    'AAFF200A0098002621000100EC00860003030E0688000000000000000071007100000088010090000003022A0402022D1E0000000100011000000000000004000000000000000000000000000000180000000003050E09040000000000000000B100B100000004010090000005042A0400002D1E0010000100001000000000000004000000000000000000000000000000180000000C5FBB',
+)
+const DIAL_TO_TURBOWASH = buf(
+    'AAFF200A009800262A000100EC00860003010E014B00000000000000000E000E0000004B010090090001012A0400002D1E2000000100001000000000000004000000000000000000000000000000180000000003030E087A00000000000000002700270000007A010090090001012A0400002D1E200000010000100000000000000400000000000000000000000000000018000000C8F8BB',
+)
+const DIAL_TO_DOWNLOAD = buf(
+    'AAFF200A0098002611000100EC00860003030E044F00000000000000003900390000004F010090090002022A0400002D1E0000000100001000000000000004000000000000000000000000000000180000000003000E09FF0000000000000000130013000000FF010090090001012A0400022D1E000000010001100000000000000400000000000000000000000000000018000000BFACBB',
+)
+
+// Progress
+
+// Activewear -> Download Cycle, which defaults to Rinse + Spin: no temperature, 1200 rpm, 16 min.
+const PAIR_DOWNLOAD_CYCLE = buf(
+    'AAFF200A009800C84B000100EC00860003030E044F00000000000000003900390000004F010090090002020504000000000000004000001000000000000004000000000000000000000000000000180000000003000E08FF0000000000000000100010000000FF0100900900010105040000000000000040000010000000000000040000000000000000000000000000001800000078E8BB',
+)
+// Cotton with the panel parked on Co.
+const READY_COLD = buf(
+    'AAFF200A005500C8D3000100EB00430003080E082E00000000000000005D005D0000002E010090000004020504000000000000000000001000000000000004000000000000000000000000000000180000005B9EBB',
+)
+// Mixed Fabric at Ready, the door shut: [37] 0x00 -> 0x01 and nothing else in the record moved.
+const PAIR_DOOR_CLOSED = buf(
+    'AAFF200A009800CE17000100EC00860003030E062B00000000000000005600560000002B010090000003020504000000000000000000001000000000000004000000000000000000000000000000180000000003030E062B00000000000000005600560000002B01009000000302050400000000000000010000100000000000000400000000000000000000000000000018000000B10DBB',
+)
+// Cotton 60 C with the spin set to 0, paused a minute into the wash.
+const PAUSED_NO_SPIN = buf(
+    'AAFF200A00550005E4000100EB00430003050E0C2E00000000000000004200420000002E020B90010004020404000000000000004101001000000000000004000000000000000000000000000000180000008068BB',
+)
+
+// One Cotton 30 C wash: the load weighed (203 -> 57 min) and the wash under way...
+const PAIR_WASHING = buf(
+    'AAFF200A0098000D67000100EC00860003020E082E00000000000000007100710000002E030190000000020504000000000000009101001000000000000004000000000000000000000000000000180000000003020E082E00000000000000003900390000002E0B039003000002050400000000000000910100100000000000000400000000000000000000000000000018000000AAE0BB',
+)
+// ...into the rinse, 20 minutes on, which clears the temperature...
+const PAIR_RINSING = buf(
+    'AAFF200A0098000ECE000100EC00860003020E082E0000000000000000260039001E002E0B0390030000020504000000000000009101001000000000000004000000000000000000000000000000180000000003000E082E0000000000000000250039001E002E0C0B9003000002050400000000000000110100100000000000000400000000000000000000000000000018000000C9D3BB',
+)
+// ...and, on another wash, from rinse into the final spin.
+const PAIR_SPINNING = buf(
+    'AAFF200A009800AE67000100EC00860003000E082E00000000000000000C003A00C8002E0C0B900400010106040000000000000011010010000000000000040000000000000000000000000000001800000000000000082E00000000000000000B003A00C8002E0E0C9004000100060400000000000000110100100000000000000400000000000000000000000000000018000000B40CBB',
+)
+// The end of that Cotton 30 C wash, spin cleared and the door released, the wash count already stepped;
+// then the machine switching itself off.
+const END = buf(
+    'AAFF200A00550011BD000100EB004300000000002E0000000000000000000039004C002E100E90000001000604000000000000004101001000000000000004000000000000000000000000000000180000008F81BB',
+)
+const PAIR_OFF_AFTER_END = buf(
+    'AAFF200A00980011CF000100EC008600000000002E0000000000000000000039004C002E100E900000010006040000000000000041010010000000000000040000000000000000000000000000001800000000000000002E0000000000000000000039004C002E00109000000400060400000000000000400000100000000000000400000000000000000000000000000018000000DDA3BB',
+)
+// TurboWash 39 at 40 C, heating: the energy count rolls over from 255 to 256 Wh.
+const PAIR_ENERGY_HIGH_BYTE = buf(
+    'AAFF200A00980001A3000100EC00860003030E087A00000000000000001B002700FF007A0B0190090000010B04000000002000001101001000000000000004000000000000000000000000000000180000000003030E087A00000000000000001B00270100007A0B0190090000010B04000000002000001101001000000000000004000000000000000000000000000000180000000421BB',
+)
+// The first record after mains power came back: off, and every field zeroed, the wash count included.
+const AFTER_POWER_CUT = buf(
+    'AAFF200A00550005C9000100EB0043000000000000000000000000000000000000000000000000000000000004000000000000000000201000000000000004000000000000000000000000000000180000007749BB',
+)
+
+// Quick 14 under way after a remote start, 2026-10-17: Child Lock held on (CL), then off again.
+const PAIR_CHILD_LOCK_ON = buf(
+    'AAFF200A0098008ED9000100EC00860003010E014B00000000000000000E000E0000004B0B0290090000021504000000002000009101001000000000000004000000000000000000000000000000180000000003010E014B00000000000000000E000E0000004B0B029009000002150400000000200000B101001000000000000004000000000000000000000000000000180000002F90BB',
+)
+const PAIR_CHILD_LOCK_OFF = buf(
+    'AAFF200A0098008EEC000100EC00860003010E014B00000000000000000D000E0008004B0B029009000002150400000000200000B101001000000000000004000000000000000000000000000000180000000003010E014B00000000000000000D000E0009004B0B0290090000021504000000002000009101001000000000000004000000000000000000000000000000180000003804BB',
+)
+
+// 2026-10-17, from Ready on Quick 14: Remote Start pressed on the panel.
+const PAIR_REMOTE_START_ON = buf(
+    'AAFF200A0098008E83000100EC00860003010E014B00000000000000000E000E0000004B010090090001021504000000002000004100001000000000000004000000000000000000000000000000180000000003010E014B00000000000000000E000E0000004B01009009000102150400000000200000510000100000000000000400000000000000000000000000000018000000BE45BB',
+)
+// Then, from Cotton at its defaults, each option button pressed once: Rinse+ (+15 min), Intensive
+// (+31 min), Pre Wash (+17 min), TurboWash (which also took the spin down to 1000).
+const PAIR_RINSE_PLUS = buf(
+    'AAFF200A0098009060000100EC00860003030E082E0000000000000000CB00CB0000002E010090000004021604000000000000004000001000000000000004000000000000000000000000000000180000000003030F082E0000000000000000DA00DA0000002E01009000000502160400000000000000400040100000000000000400000000000000000000000000000018000000C1A2BB',
+)
+const PAIR_INTENSIVE = buf(
+    'AAFF200A0098009068000100EC00860003030E082E0000000000000000CB00CB0000002E01009000000402160400000000000000400000100000000000000400000000000000000000000000000018000000000A030E082E0000000000000000EA00EA0000002E010090000004021604000000000800004000001000000000000004000000000000000000000000000000180000003A49BB',
+)
+const PAIR_PREWASH = buf(
+    'AAFF200A009800906F000100EC00860003030E082E0000000000000000CB00CB0000002E010090000004021604000000000000004000001000000000000004000000000000000000000000000000180000000003030E082E0000000000000000DC00DC0000002E01009000000502160400000000400000400000100000000000000400000000000000000000000000000018000000C0E0BB',
+)
+const PAIR_TURBOWASH = buf(
+    'AAFF200A0098009077000100EC00860003030E082E0000000000000000CB00CB0000002E010090000004021604000000000000004000001000000000000004000000000000000000000000000000180000000003030E062E0000000000000000A600A60000002E010090000004021604000000002000004000001000000000000004000000000000000000000000000000180000000D53BB',
+)
+// Timer pressed three times (5:00 on the display), and on another run once (3:00) followed by Start:
+// the load weighed, Cotton recalculated to 56 min, and the delay counting down.
+const PAIR_DELAY_5H = buf(
+    'AAFF200A0098009155000100EC00860003030E082E000000000000B400CB00CB0001002E010090000004021604000000000000004100801000000000000004000000000000000000000000000000180000000003030E082E0000000000012C00CB00CB0001002E010090000004021604000000000000004100801000000000000004000000000000000000000000000000180000005D26BB',
+)
+const PAIR_DELAYED = buf(
+    'AAFF200A0098009125000100EC00860003030E082E000000000000B4003800380000002E070390010000021604000000000000009101801000000000000004000000000000000000000000000000180000000003030E082E000000000000B3003800380000002E07039001000002160400000000000000910180100000000000000400000000000000000000000000000018000000FA24BB',
+)
+// The appliance's answers to commands: Start refused while Remote Start was off, and taken once it was on.
+const REFUSED_COMMAND = buf('AA08200024FFE2BB')
+const START_REFUSED = buf('AA082000E500E2BB') // Next message: AA5020E6000201FF010306000000000000000000000000000000000000000000010090000000002A0402022D1E0000000100211000000000000004000000000000000000000000000000180000003DBB
+const START_TAKEN = buf('AA082000E500E2BB')
+const WRITE_STATUS_REQUEST = 'AA0EF0ED1121010000001800B5BB'
+const WRITE_POWER_ON = 'AA0DF0E5000201FF010201C7BB'
+const WRITE_POWER_OFF = 'AA0DF0E5000201FF010200C4BB'
+const WRITE_PAUSE = 'AA0DF0E5000201FF010302C1BB'
+const WRITE_START = 'AA0DF0E5000201FF010301C6BB'
+
+function makeDevice() {
+    const ha = new MockHAConnection()
+    const thinq = new MockThinq2Device(DEVICE_ID, META)
+    const dev = new DUT(ha.asConnection(), thinq, META)
+    return { ha, thinq, dev, props: () => ha.devices[DEVICE_ID].properties }
+}
+
+describe(MODEL_ID, () => {
+    test('asks for the status once on connect, and never again', () => {
+        const { thinq, dev } = makeDevice()
+        dev.start()
+        assert.deepEqual(
+            thinq.outbox.map((b) => b.toString('hex').toUpperCase()),
+            [WRITE_STATUS_REQUEST],
+        )
+    })
+
+    let courses = [
+        { data: READY_COTTON_DOOR_SHUT, courseName: 'Cotton', time: 239 },
+        { data: DIAL_TO_AI_WASH, courseName: 'AI Wash', time: 64 },
+        { data: DIAL_TO_ECO, courseName: 'Eco 40-60', time: 220 },
+        { data: DIAL_TO_MIXED_FABRIC, courseName: 'Mixed Fabric', rpm: '1000 rpm', time: 86 },
+        { data: DIAL_TO_QUICK, courseName: 'Quick 14', temp: '20 °C', rpm: '400 rpm', time: 14 },
+        { data: DIAL_TO_EASY_CARE, courseName: 'Easy Care', time: 153 },
+        { data: DIAL_TO_HAND_WOOL, courseName: 'Hand/Wool', temp: '30 °C', rpm: '800 rpm', time: 37 },
+        { data: DIAL_TO_MICROPLASTIC_CARE, courseName: 'Microplastic Care', rpm: '1000 rpm', time: 113 },
+        { data: DIAL_TO_ACTIVEWEAR, courseName: 'Activewear', rpm: '800 rpm', time: 57 },
+        { data: DIAL_TO_ALLERGY_CARE, courseName: 'Allergy Care', temp: '60 °C', rpm: '1400 rpm', time: 177 },
+        { data: DIAL_TO_TURBOWASH, courseName: 'TurboWash 39', rpm: '1200 rpm', time: 39 },
+        { data: DIAL_TO_DOWNLOAD, courseName: 'Download Cycle', temp: 'None', rpm: '1400 rpm', time: 19 },
+    ]
+    for (let course of courses) {
+        test(`the 0xeb answer decodes course "${course.courseName}"`, () => {
+            const { thinq, props } = makeDevice()
+            thinq.emit('data', course.data)
+            assert.equal(props().power, 'ON')
+            assert.equal(props().status, 'Standby')
+            assert.equal(props().course, course.courseName)
+            assert.equal(props().temp, course.temp ?? '40 °C')
+            assert.equal(props().spin, course.rpm ?? '1400 rpm')
+            assert.equal(props().initial_time, course.time)
+            assert.equal(props().remaining_time, course.time)
+            assert.equal(props().door, 'OFF')
+            assert.equal(props().tub_clean_count, 42)
+        })
+    }
+
+    test('a pushed 0xec pair is read from its second record', () => {
+        const { thinq, props } = makeDevice()
+        thinq.emit('data', READY_COTTON)
+        thinq.emit('data', DIAL_TO_EASY_CARE)
+        assert.equal(props().course, 'Easy Care')
+        assert.equal(props().initial_time, 153)
+
+        thinq.emit('data', PAIR_DOWNLOAD_CYCLE)
+        assert.equal(props().course, 'Download Cycle')
+        assert.equal(props().temp, 'None') // Rinse + Spin heats nothing
+        assert.equal(props().spin, '1200 rpm')
+        assert.equal(props().initial_time, 16)
+    })
+
+    test('the zero settings sit past the top of their scales', () => {
+        const { thinq, props } = makeDevice()
+        thinq.emit('data', READY_COLD)
+        assert.equal(props().temp, 'Cold')
+
+        thinq.emit('data', PAUSED_NO_SPIN)
+        assert.equal(props().status, 'Paused')
+        assert.equal(props().temp, '60 °C')
+        assert.equal(props().spin, 'No spin')
+    })
+
+    test('the door', () => {
+        const { thinq, props } = makeDevice()
+        thinq.emit('data', READY_COTTON)
+        assert.equal(props().door, 'ON')
+        thinq.emit('data', READY_COTTON_DOOR_SHUT)
+        assert.equal(props().door, 'OFF')
+    })
+
+    test('a wash, phase by phase', () => {
+        const { thinq, props } = makeDevice()
+        thinq.emit('data', PAIR_WASHING)
+        assert.equal(props().status, 'Washing')
+        assert.equal(props().temp, '30 °C')
+        assert.equal(props().initial_time, 57)
+
+        thinq.emit('data', PAIR_RINSING)
+        assert.equal(props().status, 'Rinsing')
+        assert.equal(props().remaining_time, 37)
+        assert.equal(props().energy, 30)
+        assert.equal(props().temp, 'None') // cleared once the wash phase is over
+        assert.equal(props().spin, '1200 rpm')
+
+        thinq.emit('data', PAIR_SPINNING)
+        assert.equal(props().status, 'Spinning')
+        assert.equal(props().remaining_time, 11)
+        assert.equal(props().energy, 200)
+    })
+
+    test('the energy count is 16 bits', () => {
+        const { thinq, props } = makeDevice()
+        thinq.emit('data', PAIR_ENERGY_HIGH_BYTE)
+        assert.equal(props().course, 'TurboWash 39')
+        assert.equal(props().energy, 256)
+        assert.equal(props().tub_clean_count, 11)
+    })
+
+    test('an idle machine publishes no settings, but keeps its energy total', () => {
+        const { thinq, props } = makeDevice()
+        thinq.emit('data', END)
+        assert.equal(props().status, 'End')
+        assert.equal(props().remaining_time, 0)
+        assert.equal(props().spin, 'None')
+
+        thinq.emit('data', PAIR_OFF_AFTER_END)
+        assert.equal(props().power, 'OFF')
+        assert.equal(props().status, 'Off')
+        // course and times are still in the record, but the panel no longer shows them
+        assert.equal(props().course, 'None')
+        assert.equal(props().initial_time, 'None')
+        assert.equal(props().remaining_time, 'None')
+        assert.equal(props().energy, 76)
+        assert.equal(props().tub_clean_count, 6)
+    })
+
+    test('the wash count is not taken from a machine that is off', () => {
+        const { thinq, props } = makeDevice()
+        thinq.emit('data', READY_COTTON)
+        thinq.emit('data', AFTER_POWER_CUT)
+        assert.equal(props().power, 'OFF')
+        assert.equal(props().tub_clean_count, 42) // the record read 0 after the power cut
+    })
+
+    test('child lock', () => {
+        const { thinq, props } = makeDevice()
+        thinq.emit('data', PAIR_CHILD_LOCK_ON)
+        assert.equal(props().course, 'Quick 14')
+        assert.equal(props().child_lock, 'OFF')
+        thinq.emit('data', PAIR_CHILD_LOCK_OFF)
+        assert.equal(props().child_lock, 'ON')
+        assert.equal(props().energy, 9)
+    })
+
+    test('remote start', () => {
+        const { thinq, props } = makeDevice()
+        thinq.emit('data', PAIR_REMOTE_START_ON)
+        assert.equal(props().remote_start, 'ON')
+        assert.equal(props().turbowash, 'ON') // Quick 14's default
+        thinq.emit('data', PAIR_WASHING) // a wash started at the panel
+        assert.equal(props().remote_start, 'ON')
+        thinq.emit('data', READY_COTTON)
+        assert.equal(props().remote_start, 'OFF')
+    })
+
+    test('the option buttons', () => {
+        const { thinq, props } = makeDevice()
+        const options = () => [props().rinse_plus, props().intensive, props().prewash, props().turbowash]
+        thinq.emit('data', READY_COTTON)
+        assert.deepEqual(options(), ['OFF', 'OFF', 'OFF', 'OFF'])
+        thinq.emit('data', PAIR_RINSE_PLUS)
+        assert.deepEqual(options(), ['ON', 'OFF', 'OFF', 'OFF'])
+        assert.equal(props().initial_time, 218)
+        thinq.emit('data', PAIR_INTENSIVE)
+        assert.deepEqual(options(), ['OFF', 'ON', 'OFF', 'OFF'])
+        thinq.emit('data', PAIR_PREWASH)
+        assert.deepEqual(options(), ['OFF', 'OFF', 'ON', 'OFF'])
+        thinq.emit('data', PAIR_TURBOWASH)
+        assert.deepEqual(options(), ['OFF', 'OFF', 'OFF', 'ON'])
+        assert.equal(props().spin, '1000 rpm')
+    })
+
+    test('delay end', () => {
+        const { thinq, props } = makeDevice()
+        thinq.emit('data', READY_COTTON)
+        assert.equal(props().delay_end, 0)
+        thinq.emit('data', PAIR_DELAY_5H)
+        assert.equal(props().delay_end, 300)
+
+        thinq.emit('data', PAIR_DELAYED)
+        assert.equal(props().status, 'Delayed')
+        assert.equal(props().delay_end, 179)
+        assert.equal(props().remaining_time, 56)
+    })
+
+    test('a refused command is logged', () => {
+        const { thinq } = makeDevice()
+        const logged = captureLog()
+        try {
+            thinq.emit('data', START_TAKEN)
+            thinq.emit('data', REFUSED_COMMAND)
+            const refusals = logged.calls
+                .map((c) => c.arguments as unknown[])
+                .filter((args) => args.includes('command refused'))
+            assert.equal(refusals.length, 1)
+            assert.ok(refusals[0].includes('200024ff'))
+        } finally {
+            logged.restore()
+        }
+    })
+
+    test('every envelope is acked by its sequence number', () => {
+        const { thinq } = makeDevice()
+        thinq.emit('data', READY_COTTON)
+        thinq.emit('data', DIAL_TO_EASY_CARE)
+        const acks = thinq.sent.filter((m) => m.cmd === 'ack').map((m) => m.data)
+        assert.deepEqual(acks, [
+            AABBDevice.frame(buf('f0000a042393')).toString('hex').toUpperCase(),
+            AABBDevice.frame(buf('f0000a0425f4')).toString('hex').toUpperCase(),
+        ])
+    })
+
+    test('commands', () => {
+        const { thinq, dev } = makeDevice()
+        const sent = () => thinq.outbox.map((b) => b.toString('hex').toUpperCase())
+        dev.setProperty('power', 'ON')
+        dev.setProperty('power', 'OFF')
+        dev.setProperty('pause', '')
+        dev.setProperty('start', '')
+        assert.deepEqual(sent(), [WRITE_POWER_ON, WRITE_POWER_OFF, WRITE_PAUSE, WRITE_START])
+    })
+})
